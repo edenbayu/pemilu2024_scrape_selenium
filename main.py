@@ -1,114 +1,205 @@
-import os
-import argparse
-import pickle
-import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import os
+import csv
 
-# Base URL
-BASE_URL = 'https://pemilu2024.kpu.go.id'
 
-# Fungsi untuk mengakses halaman dan melakukan scraping
-def scrape_page(url, output_path, queue, ref_queue, driver):
-    try:
-        # Buka halaman
-        driver.get(url)
-        print('[LOADED]', url)
+def get_provinces(driver) -> list:
+    ENDPOINT = 'https://pemilu2024.kpu.go.id/pilpres/hitung-suara'
+    driver.get(ENDPOINT)
+    
+    provinces = []
 
-        # Cek jika halaman berisi form pindai, jika ya maka scrap datanya
-        if 'tps' in output_path.lower() or 'pos' in output_path.lower():
-            os.makedirs(output_path, exist_ok=True)
+    # Navigate to the webpage with the table
+    # Find the table element
+    table = driver.find_element(By.CLASS_NAME, "table")
 
-            # Tulis URL ke dalam file link.txt
-            with open(os.path.join(output_path, 'link.txt'), 'w') as file:
-                file.write(url)
+    # Find all the <a> tags within the table
+    province_elements = table.find_elements(By.TAG_NAME, "a")
+    for province_element in province_elements:
+        province_name = province_element.text
+        province_id = province_element.get_attribute('href').split('/')[-1]
+        provinces.append({"name": province_name, 
+                          "kode": province_id})
+    return provinces
 
-            # Klik tombol 'Form Pindai' jika ada
-            btn = driver.find_element(By.XPATH, '//button[@class="btn btn-dark float-end" and text()="Form Pindai"]')
-            btn.click()
+def get_cities(driver, prov_id) -> list:
+    ENDPOINT = f'https://pemilu2024.kpu.go.id/pilpres/hitung-suara/{prov_id}'
+    driver.get(ENDPOINT)
+    
+    cities = []
+    # Navigate to the webpage with the table
 
-            # Tunggu sampai elemen yang diharapkan muncul
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.card-body div.row div.col-md-4')))
-            
-            # Scrap gambar-gambar yang ada di halaman
-            images = driver.find_elements(By.CSS_SELECTOR, 'div.card-body div.row div.col-md-4 a img')
-            for i, image in enumerate(images):
-                img_link = image.get_attribute('src')
-                ext = img_link.split('.')[-1]
-                # Download gambar
-                response = requests.get(img_link)
-                if response.status_code == 200:
-                    with open(os.path.join(output_path, f'{i}.{ext}'), 'wb') as file:
-                        file.write(response.content)
-                else:
-                    print('Failed to download image', img_link)
+    # Find the table element
+    table = driver.find_element(By.CLASS_NAME, "table")
+
+    # Find all the <a> tags within the table
+    cities_elements = table.find_elements(By.TAG_NAME, "a")
+    for cities_element in cities_elements:
+        cities_name = cities_element.text
+        cities_id = cities_element.get_attribute('href').split('/')[-1]
+        if cities_name and cities_id:  # Check if both name and id are not empty
+            cities.append({"name": cities_name, 
+                              "kode": cities_id})
         else:
-            table = driver.find_element(By.CLASS_NAME, "table")
-            # Jika halaman bukan form pindai, cari tautan-tautan yang ada di dalam tabel
-            items = table.find_elements(By.TAG_NAME, 'a')
-            for item in items:
-                text = item.text
-                next_link = item.get_attribute('href')
-                next_path = os.path.join(output_path, text)
-                # Jika tautan ditemukan, masukkan ke dalam antrian
-                queue.append((next_link, next_path))
-                ref_queue.append((next_link, next_path))
+            continue
+    return cities
 
-    except Exception as e:
-        print('Error on', url, ', Path:', output_path)
-        print(e)
-
-# Fungsi utama
-def main(base_url, start_url, output, timeout, workers, resume):
-    # Inisialisasi queue
-    queue = []
+def get_kecamatan(driver, prov_id, city_id) -> list:
+    ENDPOINT = f'https://pemilu2024.kpu.go.id/pilpres/hitung-suara/{prov_id}/{city_id}'
+    driver.get(ENDPOINT)
     
-    # Inisialisasi referensi queue
-    ref_queue = [(start_url, output)]
+    kecamatan = []
+    # Navigate to the webpage with the table
+
+    # Find the table element
+    table = driver.find_element(By.CLASS_NAME, "table")
+
+    # Find all the <a> tags within the table
+    kecamatan_elements = table.find_elements(By.TAG_NAME, "a")
+    for kecamatan_element in kecamatan_elements:
+        kecamatan_name = kecamatan_element.text
+        kecamatan_id = kecamatan_element.get_attribute('href').split('/')[-1]
+        if kecamatan_name and kecamatan_id:  # Check if both name and id are not empty
+            kecamatan.append({"name": kecamatan_name, 
+                              "kode": kecamatan_id})
+        else:
+            continue
+    return kecamatan
+
+def get_kelurahan(driver, prov_id, city_id, kecamatan_id) -> list:
+    ENDPOINT = f'https://pemilu2024.kpu.go.id/pilpres/hitung-suara/{prov_id}/{city_id}/{kecamatan_id}'
+    driver.get(ENDPOINT)
     
-    # Menambahkan start_url dan output ke dalam queue
-    queue.append((start_url, output))
+    kelurahan = []
+    # Navigate to the webpage with the table
 
-    # Resume sesi sebelumnya jika tersedia
-    if resume and os.path.exists('.queue.cache'):
-        print('Resuming previous session')
-        with open('.queue.cache', 'rb') as file:
-            ref_queue = pickle.load(file)
+    # Find the table element
+    table = driver.find_element(By.CLASS_NAME, "table")
 
-    # Inisialisasi WebDriver
-    driver = webdriver.Firefox()
+    # Find all the <a> tags within the table
+    kelurahan_elements = table.find_elements(By.TAG_NAME, "a")
+    for kelurahan_element in kelurahan_elements:
+        kelurahan_name = kelurahan_element.text
+        kelurahan_id = kelurahan_element.get_attribute('href').split('/')[-1]
+        if kelurahan_name and kelurahan_id:  # Check if both name and id are not empty
+            kelurahan.append({"name": kelurahan_name, 
+                              "kode": kelurahan_id})
+        else:
+            continue
+    return kelurahan
 
-    # Iterasi untuk menjalankan scraping
-    while queue:
-        # Mendapatkan URL dan output dari queue
-        url, output_path = queue.pop(0)
-        ref_queue.pop(0)
+def get_tps(driver, prov_id, city_id, kecamatan_id, kelurahan_id) -> list:
+    ENDPOINT = f'https://pemilu2024.kpu.go.id/pilpres/hitung-suara/{prov_id}/{city_id}/{kecamatan_id}/{kelurahan_id}'
+    driver.get(ENDPOINT)
+    
+    tps = []
+    # Navigate to the webpage with the table
 
-        # Scrap halaman
-        scrape_page(url, output_path, queue, ref_queue, driver)
+    # Find the table element
+    table = driver.find_element(By.CLASS_NAME, "table")
 
-        # Menyimpan referensi queue
-        with open('.queue.cache', 'wb') as file:
-            pickle.dump(ref_queue, file)
+    # Find all the <a> tags within the table
+    tps_elements = table.find_elements(By.TAG_NAME, "a")
+    for tps_element in tps_elements:
+        tps_name = tps_element.text
+        tps_id = tps_element.get_attribute('href').split('/')[-1]
+        if tps_name and tps_id:  # Check if both name and id are not empty
+            tps.append({"name": tps_name, 
+                              "kode": tps_id})
+        else:
+            continue
+    return tps
 
-    # Tutup WebDriver
-    driver.quit()
+def get_c1_form_src(driver, prov_id, city_id, kecamatan_id, kelurahan_id, tps_id, fields, data):
+    ENDPOINT = f'https://pemilu2024.kpu.go.id/pilpres/hitung-suara/{prov_id}/{city_id}/{kecamatan_id}/{kelurahan_id}/{tps_id}'
+    driver.get(ENDPOINT)
 
-# Jalankan fungsi utama
+    image_elements = driver.find_elements(By.XPATH, "//div[@class='col-md-4']//img")
+    # Iterate over each image element and extract its src attribute
+    for image_element in image_elements:
+        src = image_element.get_attribute("src")
+        for i, img in enumerate(src, start=1):
+            key = f'Form_Hasil-C_{i}'
+            fields.append(key)
+            data[key] = img
+
+def directory(path: str = './datasets') -> None:
+  if not (os.path.exists(path) and os.path.isdir(path)): os.makedirs(path)
+
+def write_csv(path: str = 'data.csv', data: dict = None, fields: list = []) -> None:
+    if data is None:
+        data = {}
+    if not os.path.exists(path):
+        with open(path, mode='w+', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow(data)
+    else:
+        with open(path, mode='a', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fields)
+            writer.writerow(data)
+
+def main():
+    driver = webdriver.Chrome()
+    directory(path = f'./datasets/')
+    provinces = get_provinces(driver)
+    for v_provinces in provinces:
+        prov_name = v_provinces['name']
+        prov_code = v_provinces['kode']
+
+        cities = get_cities(driver, prov_code)
+        for v_city in cities:
+            city_name = v_city["name"]
+            city_code = v_city["kode"]
+
+            kecamatan = get_kecamatan(driver, prov_code, city_code)
+            for v_kecamatan in kecamatan:
+                kecamatan_name = v_kecamatan["name"]
+                kecamatan_code = v_kecamatan["kode"]
+
+                kelurahan = get_kelurahan(driver, prov_code, city_code, kecamatan_code)
+                for v_kelurahan in kelurahan:
+                    kelurahan_name = v_kelurahan["name"]
+                    kelurahan_code = v_kelurahan["kode"]
+
+                    tps = get_tps(driver, prov_code, city_code, kecamatan_code, kelurahan_code)
+                    for v_tps in tps:
+                        tps_name = v_tps["name"]
+                        tps_code = v_tps["kode"]
+
+                        fields = [
+                            'Province_ID',
+                            'Province_Name',
+                            'City_ID',
+                            'City_Name',
+                            'Kecamatan_ID',
+                            'Kecamatan_Name',
+                            'Kelurahan_ID',
+                            'Kelurahan_Name',
+                            'TPS_ID',
+                            'TPS_Name']
+
+                        data = {
+                            'Province_ID': prov_code,
+                            'Province_Name': prov_name,
+                            'City_ID': city_code,
+                            'City_Name': city_name,
+                            'Kecamatan_ID': kecamatan_code,
+                            'Kecamatan_Name': kecamatan_name,
+                            'Kelurahan_ID': kelurahan_code,
+                            'Kelurahan_Name': kelurahan_name,
+                            'TPS_ID': tps_code,
+                            'TPS_Name': tps_name
+                        }
+
+                        write_csv(
+                            path = f'./datasets/{prov_name}.csv',
+                            fields = fields,
+                            data = data
+                            )
+                        
+                        get_c1_form_src(driver, prov_code, city_code, kecamatan_code, kelurahan_code, tps_code, fields=fields, data=data)
+
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='Indonesia Pemilu 2024 Scraper')
-    args.add_argument('--start-url', type=str, help=f'Starting url. Base is {BASE_URL}', default=BASE_URL + '/pilpres/hitung-suara')
-    args.add_argument('--output', type=str, help='Output directory', default='results')
-    args.add_argument('--timeout', type=int, help='Timeout for each request', default=3000)
-    args.add_argument('--workers', type=int, help='Total concurrent workers', default=15)
-    args.add_argument('--headless', action='store_true', help='Run in headless mode')
-    args.add_argument('--resume', action='store_true', help='Resume previous session if available')
-    parsed_args = args.parse_args()
-    
-    print(parsed_args)
-    main(BASE_URL, parsed_args.start_url, parsed_args.output, parsed_args.timeout, parsed_args.workers, parsed_args.resume)
-
-
-
+    main()
